@@ -1,0 +1,12 @@
+{
+  "name": "deepdream",
+  "version": "0.0.1",
+  "main": "server.js",
+  "dependencies": {
+    "ejs": "^1.0.0",
+    "express": "^4.10.6",
+    "mysql": "^2.5.4",
+    "socket.io": "latest",
+    "ws": "^0.7.2"
+  }
+}

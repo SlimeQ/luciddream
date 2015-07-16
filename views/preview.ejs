@@ -1,0 +1,120 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="chrome=1">
+</head>
+<body>
+	<script src="/socket.io/socket.io.js"></script>
+	<script src="/socket.io-stream.js"></script>
+	<video id="webcam_feed" hidden autoplay ></video>
+	<canvas id="snapshot"></canvas>
+ 	<canvas id="server_feed"></canvas>
+ <p><button onclick="capture()">Send Pic</button></p>
+
+	<script>
+navigator.getUserMedia = navigator.webkitGetUserMedia || navigator.getUserMedia;
+window.URL = window.URL || window.webkitURL;
+
+var video = document.getElementById('webcam_feed');
+var canvas = document.getElementById('server_feed');
+var snapshot = document.getElementById('snapshot');
+var ctx = canvas.getContext('2d');
+var stx = snapshot.getContext('2d');
+var intervalId = null;
+var idx = 0;
+
+var socket = io();
+function gotStream(stream) {
+	console.log('gotStream');
+  if (window.URL) {
+    video.src = window.URL.createObjectURL(stream);
+  } else {
+    video.src = stream; // Opera.
+  }
+
+  video.onerror = function(e) {
+    stream.stop();
+  };
+
+  stream.onended = noStream;
+
+	// capture
+  // // Since video.onloadedmetadata isn't firing for getUserMedia video, we have
+  // // to fake it.
+  setTimeout(function() {
+    // canvas.width = video.videoWidth;
+    // canvas.height = video.videoHeight;
+		capture();
+  }, 150);
+}
+
+function noStream(e) {
+  var msg = 'No camera available.';
+  if (e.code == 1) {
+    msg = 'User denied access to use camera.';
+  }
+  document.getElementById('errorMessage').textContent = msg;
+}
+
+socket.on("image", function(info) {
+	canvas.width = video.videoWidth;
+	canvas.height = video.videoHeight;
+  if (info.image) {
+		// console.log(info.buffer);
+    var img = new Image();
+    img.src = info.buffer;
+    ctx.drawImage(img, 0, 0, video.videoWidth, video.videoHeight);
+  }
+	setTimeout(function () {
+		capture();
+	}, 35);
+	// socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg').toString('base64')});
+});
+function capture() {
+	snapshot.width = video.videoWidth;
+	snapshot.height = video.videoHeight;
+	stx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+	socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg')});
+	// ss(socket).emit('image', ctx.getImageData(0, 0, video.videoWidth, video.videoHeight));
+	// socket.emit('image', ctx.getImageData(0, 0, video.videoWidth, video.videoHeight).toString('base64'));
+}
+  // if (intervalId) {
+  //   clearInterval(intervalId);
+  //   intervalId = null;
+  //   return;
+  // }
+	//
+  // intervalId = setInterval(function() {
+  //   ctx.drawImage(video, 0, 0);
+  //   var img = document.createElement('img');
+  //   img.src = canvas.toDataURL('image/webp');
+	//
+  //   var angle = Math.floor(Math.random() * 36);
+  //   var sign = Math.floor(Math.random() * 2) ? 1 : -1;
+  //   img.style.webkitTransform = 'rotateZ(' + (sign * angle) + 'deg)';
+	//
+  //   var maxLeft = document.body.clientWidth;
+  //   var maxTop = document.body.clientHeight;
+	//
+  //   img.style.top = Math.floor(Math.random() * maxTop) + 'px';
+  //   img.style.left = Math.floor(Math.random() * maxLeft) + 'px';
+	//
+  //   gallery.appendChild(img);
+  // }, 150);
+
+window.onload = function init() {
+
+	// canvas.width = video.videoWidth;
+	// canvas.height = video.videoHeight;
+
+  if (!navigator.getUserMedia) {
+    document.getElementById('errorMessage').innerHTML = 'Sorry. <code>navigator.getUserMedia()</code> is not available.';
+    return;
+  }
+  navigator.getUserMedia({video: true}, gotStream, noStream);
+}
+</script>
+</body>
+</html>
