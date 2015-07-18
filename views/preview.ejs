@@ -40,14 +40,15 @@ function gotStream(stream) {
 
   stream.onended = noStream;
 
-	// capture
-  // // Since video.onloadedmetadata isn't firing for getUserMedia video, we have
-  // // to fake it.
-  setTimeout(function() {
-    // canvas.width = video.videoWidth;
-    // canvas.height = video.videoHeight;
-		capture();
-  }, 150);
+	if (sessionStorage['lastframe'] != undefined) {
+		socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg'), guid : sessionStorage.guid});
+	} else {
+	  setTimeout(function() {
+	    // canvas.width = video.videoWidth;
+	    // canvas.height = video.videoHeight;
+			capture();
+	  }, 150);
+	}
 }
 
 function noStream(e) {
@@ -70,13 +71,26 @@ socket.on("image", function(info) {
 	setTimeout(function () {
 		capture();
 	}, 35);
+	sessionStorage['lastframe'] = info.buffer;
 	// socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg').toString('base64')});
 });
+function guid() {
+  function s4() {
+    return Math.floor((1 + Math.random()) * 0x10000)
+      .toString(16)
+      .substring(1);
+  }
+  return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
+    s4() + '-' + s4() + s4() + s4();
+}
 function capture() {
 	snapshot.width = video.videoWidth;
 	snapshot.height = video.videoHeight;
+	if (sessionStorage.guid == undefined) {
+		sessionStorage.guid = guid();
+	}
 	stx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-	socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg')});
+	socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg'), guid : sessionStorage.guid});
 	// ss(socket).emit('image', ctx.getImageData(0, 0, video.videoWidth, video.videoHeight));
 	// socket.emit('image', ctx.getImageData(0, 0, video.videoWidth, video.videoHeight).toString('base64'));
 }

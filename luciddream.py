@@ -43,14 +43,14 @@ def handle_requests():
             # print request.form['buffer']
             frame = np.float32(PIL.Image.open(BytesIO(base64.b64decode(request.form['buffer'].partition('data:image/jpeg;base64,')[2]))))
             h, w = frame.shape[:2]
-            if not request.form['requestor'] in lastFrames:
-                lastFrames[request.form['requestor']] = np.zeros(frame.shape)
+            if not request.form['guid'] in lastFrames:
+                lastFrames[request.form['guid']] = np.zeros(frame.shape)
 
-            frame = np.add(frame * 0.9, lastFrames[request.form['requestor']] * 0.3)
+            frame = np.add(frame * 0.9, lastFrames[request.form['guid']] * 0.3)
             # frame -= lastFrames[request.environ['REMOTE_ADDR']]
             # only in dreams
             frame = deepdream(net, frame, iter_n=1, octave_n=5, end=net.blobs.keys()[42])
-            lastFrames[request.form['requestor']] = frame
+            lastFrames[request.form['guid']] = frame
             # if lastFrames != None:
             #     frame = np.add(frame, lastFrames[request.environ['REMOTE_ADDR']])
             # import code

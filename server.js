@@ -68,13 +68,13 @@ io.on('connection', function(socket) {
 						form : {
 							image : stream.image,
 							buffer : stream.buffer,
-							requestor: socket.conn.remoteAddress
+							guid: stream.guid
 						}
 					}, function(err, response, body) {
 						if (!err) {
 							console.log('emitting back');
 							// console.log(body);
-							socket.emit('image', {image: true, buffer : body});
+							socket.emit('image', {image: true, buffer : body, guid : stream.guid});
 							util.ensureExists('memory', function() {
 								util.ensureExists('memory/'+new Date().toJSON().slice(0,10), function(){
 									util.base64_decode(body, 'memory/'+new Date().toJSON().slice(0,10)+'/'+util.timestamp()+'.jpeg');
