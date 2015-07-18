@@ -1,7 +1,5 @@
 #!/usr/bin/python
 
-
-
 import socket
 import sys
 
@@ -32,7 +30,7 @@ from flask import Flask, request
 from io import BytesIO
 import base64
 app = Flask(__name__)
-lastFrames = None
+lastFrames = dict()
 @app.route('/deepdream', methods=['GET', 'POST'])
 def handle_requests():
     global lastFrames
@@ -45,14 +43,14 @@ def handle_requests():
             # print request.form['buffer']
             frame = np.float32(PIL.Image.open(BytesIO(base64.b64decode(request.form['buffer'].partition('data:image/jpeg;base64,')[2]))))
             h, w = frame.shape[:2]
-            if lastFrames == None:
-                lastFrames = np.zeros(frame.shape)
+            if not request.form['requestor'] in lastFrames:
+                lastFrames[request.form['requestor']] = np.zeros(frame.shape)
 
-            frame = np.add(frame * 0.9, lastFrames * 0.3)
+            frame = np.add(frame * 0.9, lastFrames[request.form['requestor']] * 0.3)
             # frame -= lastFrames[request.environ['REMOTE_ADDR']]
             # only in dreams
             frame = deepdream(net, frame, iter_n=1, octave_n=5, end=net.blobs.keys()[42])
-            lastFrames = frame
+            lastFrames[request.form['requestor']] = frame
             # if lastFrames != None:
             #     frame = np.add(frame, lastFrames[request.environ['REMOTE_ADDR']])
             # import code
@@ -73,12 +71,12 @@ def handle_requests():
 ##########################################################################
 # main function
 # -------------
-# runs light, for webcam use. OVERWRITES ORIGINAL FILE!
+# runs light, for webcam use.
 ##########################################################################
 if __name__ == '__main__':
     app.debug = True
     port = int(sys.argv[1])
-    if len(sys.argv) < 2 and sys.argv[2] != '':
+    if len(sys.argv) > 2 and sys.argv[2] != '':
         app.run(host="0.0.0.0", port=port)
     else:
         r = requests.post("http://localhost:8080/deepdream", data={'ready': True});
