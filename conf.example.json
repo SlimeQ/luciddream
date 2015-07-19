@@ -1,0 +1,10 @@
+{
+  "url" : "example.com",
+  "port" : 80,
+  "slaves" : [
+    {
+      "url" : "localhost",
+      "port" :8080
+    }
+  ]
+}

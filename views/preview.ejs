@@ -1,14 +1,20 @@
 
 <!DOCTYPE html>
-<html>
+<html style="background-color:black">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="chrome=1">
 </head>
+<style>
+html {
+	background-color: black;
+}
+
+</style>
 <body>
 	<script src="/socket.io/socket.io.js"></script>
-	<script src="/socket.io-stream.js"></script>
 	<video id="webcam_feed" hidden autoplay ></video>
+	<canvas id="blended" hidden></canvas>
 	<canvas id="snapshot"></canvas>
  	<canvas id="server_feed"></canvas>
  <p><button onclick="capture()">Send Pic</button></p>
@@ -20,8 +26,10 @@ window.URL = window.URL || window.webkitURL;
 var video = document.getElementById('webcam_feed');
 var canvas = document.getElementById('server_feed');
 var snapshot = document.getElementById('snapshot');
+var blended = document.getElementById('blended');
 var ctx = canvas.getContext('2d');
 var stx = snapshot.getContext('2d');
+var btx = blended.getContext('2d');
 var intervalId = null;
 var idx = 0;
 
@@ -40,15 +48,15 @@ function gotStream(stream) {
 
   stream.onended = noStream;
 
-	if (sessionStorage['lastframe'] != undefined) {
-		socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg'), guid : sessionStorage.guid});
-	} else {
-	  setTimeout(function() {
+  setTimeout(function() {
 	    // canvas.width = video.videoWidth;
 	    // canvas.height = video.videoHeight;
+		if (sessionStorage['lastframe'] != undefined) {
+			socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg'), guid : sessionStorage.guid});
+		} else {
 			capture();
-	  }, 150);
-	}
+	  }
+	}, 150);
 }
 
 function noStream(e) {
@@ -58,7 +66,19 @@ function noStream(e) {
   }
   document.getElementById('errorMessage').textContent = msg;
 }
-
+var lasttimestamp = timestamp();
+function timestamp() {
+	return Date.now()/1000.0;
+}
+var framerate = function() {
+	var t = timestamp();
+	console.log()
+	var ret = t - lasttimestamp;
+	lasttimestamp = t;
+	console.log(ret, 'sec');
+	console.log(1/ret, 'fps');
+}
+var lastframe = undefined;
 socket.on("image", function(info) {
 	canvas.width = video.videoWidth;
 	canvas.height = video.videoHeight;
@@ -67,11 +87,13 @@ socket.on("image", function(info) {
     var img = new Image();
     img.src = info.buffer;
     ctx.drawImage(img, 0, 0, video.videoWidth, video.videoHeight);
+		lastframe = ctx.getImageData(0,0, video.videoWidth, video.videoHeight);
+		sessionStorage['lastframe'] = info.buffer;
   }
-	setTimeout(function () {
+	// setTimeout(function () {
 		capture();
-	}, 35);
-	sessionStorage['lastframe'] = info.buffer;
+	 	framerate();
+	// }, 35);
 	// socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg').toString('base64')});
 });
 function guid() {
@@ -83,14 +105,31 @@ function guid() {
   return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
     s4() + '-' + s4() + s4() + s4();
 }
+var newframe = undefined;
+// assumes both frames are the same size...
+var blend = function(imageData1, coef1, imageData2, coef2) {
+  for (var i = 0; i < imageData1.data.length; i += 4) {
+    imageData1.data[i]     = imageData1.data[i]   * coef1 + imageData2.data[i]   * coef2; // red
+    imageData1.data[i + 1] = imageData1.data[i+1] * coef1 + imageData2.data[i+1] * coef2; // green
+    imageData1.data[i + 2] = imageData1.data[i+2] * coef1 + imageData2.data[i+2] * coef2; // blue
+  }
+	return imageData1;
+};
 function capture() {
 	snapshot.width = video.videoWidth;
 	snapshot.height = video.videoHeight;
+	blended.width = snapshot.width;
+	blended.height = snapshot.height;
 	if (sessionStorage.guid == undefined) {
 		sessionStorage.guid = guid();
 	}
 	stx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-	socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg'), guid : sessionStorage.guid});
+	newframe = stx.getImageData(0,0, video.videoWidth, video.videoHeight);
+	if (lastframe != undefined) {
+		btx.putImageData(blend(newframe, 0.9, lastframe, 0.2), 0,0);
+	}
+
+	socket.emit('image', {image:true, buffer: blended.toDataURL('image/jpeg'), guid : sessionStorage.guid});
 	// ss(socket).emit('image', ctx.getImageData(0, 0, video.videoWidth, video.videoHeight));
 	// socket.emit('image', ctx.getImageData(0, 0, video.videoWidth, video.videoHeight).toString('base64'));
 }

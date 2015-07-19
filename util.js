@@ -5,7 +5,7 @@ exports.hrsToSec = function(hr) {
   return hr * 60 * 60;
 }
 exports.timestamp = function() {
-  return Math.round(+new Date()/1000);
+  return +new Date()/1000.0;
 }
 exports.ensureExists = function(path, mask, cb) {
   if (typeof mask == 'function') {
@@ -40,9 +40,60 @@ exports.base64_encode = function(file) {
 // function to create file from base64 encoded string
 exports.base64_decode = function(base64str, file) {
     // create buffer object from base64 encoded string, it is important to tell the constructor that the string is base64 encoded
-    // console.log(base64str);
     var bitmap = new Buffer(base64str.replace(/^data:image\/(png|gif|jpeg);base64,/,''), 'base64');
     // write buffer to file
-    fs.writeFileSync(file, bitmap);
-    console.log('******** File created from base64 encoded string ********');
+    try {
+      fs.writeFileSync(file, bitmap);
+      console.log('******** File created from base64 encoded string ********');
+    } catch (err) {
+      console.log(err);
+    }
+}
+
+exports.saveToMemory = function(info) {
+  // save to disk
+  var currdate = new Date().toJSON().slice(0,10);
+  var timestamp = util.timestamp();
+  exports.ensureExists('memory', function(err) {
+    if (!err) {
+      exports.ensureExists('memory/'+currdate, function(err){
+        if (!err) {
+          exports.base64_decode(info.buffer, 'memory/'+currdate+'/'+timestamp+'--'+info.guid+'.jpeg');
+        } else {
+          console.log(err);
+        }
+      });
+    } else {
+      console.log(err);
+    }
+  });
+}
+
+var portrange = 45032;
+exports.getPort = function(cb) {
+	var port = portrange;
+	portrange += 1;
+
+	var server = net.createServer();
+	server.listen(port, function (err) {
+		server.once('close', function () {
+				cb(port);
+			});
+			server.close();
+		});
+		server.on('error', function (err) {
+		getPort(cb);
+	});
+}
+exports.checkPort = function(port, cb) {
+	var server = net.createServer();
+	server.listen(port, function (err) {
+		server.once('close', function () {
+				cb(false);
+			});
+			server.close();
+		});
+		server.on('error', function (err) {
+			cb(true);
+	});
 }

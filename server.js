@@ -3,7 +3,6 @@ var sys = require("sys");
 var express = require('express');
 var app = express();
 var http = require('http').Server(app);
-var io = require('socket.io')(http);
 var fs = require('fs');
 var exec = require('child_process').exec;
 
@@ -11,95 +10,60 @@ var request = require('request');
 var net = require('net');
 var util = require('./util');
 
-var portrange = 45032;
+var conf = require('./conf');
 
-function getPort (cb) {
-	var port = portrange;
-	portrange += 1;
+var zerorpc = require("zerorpc");
 
-	var server = net.createServer();
-	server.listen(port, function (err) {
-		server.once('close', function () {
-				cb(port);
-			});
-			server.close();
-		});
-		server.on('error', function (err) {
-		getPort(cb);
-	});
-}
-function checkPort (port, cb) {
-	var server = net.createServer();
-	server.listen(port, function (err) {
-		server.once('close', function () {
-				cb(false);
-			});
-			server.close();
-		});
-		server.on('error', function (err) {
-			cb(true);
-	});
-}
+// var client = new zerorpc.Client();
+// client.connect("tcp://"+conf.slaves[0].url+":"+conf.slaves[0].port);
+// conf.slaves.map(function(x) {
+// 	var client = new zerorpc.Client();
+// 	client.connect("tcp://"+x.url+":"+x.port);
+// 	return {
+// 		url   : x.url,
+// 		port  : x.port,
+// 		client : client,
+// 		users : 0
+// 	};
+// });
 
-var pyport = undefined;
-getPort(function(port) {
-	pyport = port;
-	exec('python luciddream.py ' + port.toString() + ' >> luciddream.log',
-	function (err, stdout, stderr) {
-		console.log('lightdreamer died');
-		console.log(err);
-		console.log('stdout:', stdout);
-		console.log('stderr', stderr);
-	});
-});
-io.on('connection', function(socket) {
+var publicIO = require('socket.io')(http);
+var client = new zerorpc.Client();
+client.connect("tcp://"+conf.slaves[0].url+":"+conf.slaves[0].port);
+console.log('created slave client');
+
+publicIO.on('connection', function(socket) {
 	console.log(socket.conn.remoteAddress, 'connected');
-  socket.on('image', function(stream) {
-		// console.log(stream.buffer);
-		// var buffer = 'buffer/'+Date.now()+'.jpg';
-		if (pyport != undefined && ready) {
-			checkPort(pyport, function(available) {
-				if (available) {
-					console.log('requesting dream');
-					console.log('http://127.0.0.1:'+pyport);
-					request.post('http://127.0.0.1:'+pyport+'/deepdream',
-					{
-						form : {
-							image : stream.image,
-							buffer : stream.buffer,
-							guid: stream.guid
-						}
-					}, function(err, response, body) {
-						if (!err) {
-							console.log('emitting back');
-							// console.log(body);
-							socket.emit('image', {image: true, buffer : body, guid : stream.guid});
-							util.ensureExists('memory', function() {
-								util.ensureExists('memory/'+new Date().toJSON().slice(0,10), function(){
-									util.base64_decode(body, 'memory/'+new Date().toJSON().slice(0,10)+'/'+util.timestamp()+'.jpeg');
-								});
-							});
-						} else {
-							console.log(err);
-							console.log('emitting back');
-							// socket.emit('image', stream);
-						}
-					});
-				} else {
-					console.log('pyport not bound');
-					// setTimeout(function() {
-						// console.log('emitting back');
-						// socket.emit('image', stream);
-					// });
-				}
-			});
-		} else {
-			console.log('pyport undefined');
-			// setTimeout(function() {
-			// 	console.log('emitting back');
-			// 	socket.emit('image', stream);
-			// });
+
+	// cuda --> client stuff
+	// var computeIO = require('socket.io-client')('http://localhost:8080');
+	// computeIO.on('connect', function(){
+	// 	console.log('connected to localhost:8080');
+	// });
+	// computeIO.on('image', function(info){
+	// 	console.log('emitting to client');
+	// 	socket.emit('image', info);
+	// 	util.saveToMemory(info);
+	// });
+	// computeIO.on('disconnect', function(){
+	// 	console.log('localhost:8080 disconnected');
+	// });
+
+	// client --> cuda stuff
+	var sentlast = 0;
+	socket.on('image', function(info) {
+		if (sentlast != 0) {
+			console.log(util.timestamp() - sentlast);
 		}
+		info.recieved = util.timestamp();
+		console.log('recieved image from '+socket.conn.remoteAddress+' at '+info.recieved);
+		client.invoke("dream", info.buffer, util.timestamp(), function(err, res, more) {
+			info.buffer = res;
+			info.returned = util.timestamp();
+			sentlast = info.returned;
+			socket.emit('image', info);
+			console.log('frame processed in ' + (info.returned - info.recieved) + 's');
+		});
 	});
 	// make sure to clean up after disconnects
 	socket.on('disconnect', function(){
@@ -117,17 +81,17 @@ app.set('view engine', 'ejs');
 
 var ready = false;
 app.get("/",function(req,res){
-	if (ready) {
+	// if (ready) {
 		res.render('preview.ejs', {});
-	} else {
-		res.send("sorry, still starting up");
-	}
+	// } else {
+		// res.send("sorry, still starting up");
+	// }
 });
-app.post("/deepdream", function(req, res) {
-	ready = true;
-	console.log('accepting requests now');
-	res.send('200');
-})
+// app.post("/deepdream", function(req, res) {
+// 	ready = true;
+// 	console.log('accepting requests now');
+// 	res.send('200');
+// })
 
 var listenon = process.argv[2];
 http.listen(listenon, function(){
