@@ -27,9 +27,30 @@ import sys
 import time
 
 from flask import Flask, request
+from flask.ext.socketio import SocketIO, emit
 from io import BytesIO
 import base64
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'kljsdkjlsdfkjl'
+socketio = SocketIO(app)
+@socketio.on('image')
+def handle_message(json):
+    print('received message: ', json)
+    if 'buffer' in json:
+        frame = np.float32(PIL.Image.open(BytesIO(base64.b64decode(json['buffer'].partition('data:image/jpeg;base64,')[2]))))
+        h, w = frame.shape[:2]
+        if not json['guid'] in lastFrames:
+            lastFrames[json['guid']] = np.zeros(frame.shape)
+        frame = np.add(frame * 0.9, lastFrames[json['guid']] * 0.3)
+        frame = deepdream(net, frame, iter_n=1, octave_n=5, end=net.blobs.keys()[42])
+        lastFrames[json['guid']] = frame
+        buf = StringIO()
+        pil = PIL.Image.fromarray(np.uint8(frame))
+        pil.save(buf, format='jpeg')
+        buf.seek(0)
+        json['buffer'] = 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue())
+        emit('image', json)
+
 lastFrames = dict()
 @app.route('/deepdream', methods=['GET', 'POST'])
 def handle_requests():
@@ -79,11 +100,12 @@ if __name__ == '__main__':
     if len(sys.argv) > 2 and sys.argv[2] != '':
         app.run(host="0.0.0.0", port=port)
     else:
-        r = requests.post("http://localhost:8080/deepdream", data={'ready': True});
+        r = requests.post("http://localhost/deepdream", data={'ready': True});
         print r.status_code, r.reason
         if (r.status_code == 200):
             print 'listening on', port
-            app.run(host="0.0.0.0", port=port)
+            # app.run(host="0.0.0.0", port=port)
+            socketio.run(app, host="0.0.0.0", port=port)
 
     # # get  args if we can.
     # parser = argparse.ArgumentParser()

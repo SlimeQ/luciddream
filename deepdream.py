@@ -4,7 +4,6 @@ import numpy as np
 import scipy.ndimage as nd
 import PIL.Image
 from google.protobuf import text_format
-import cv2
 import caffe
 
 from time import time

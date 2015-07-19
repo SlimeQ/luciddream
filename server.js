@@ -4,7 +4,6 @@ var express = require('express');
 var app = express();
 var http = require('http').Server(app);
 var io = require('socket.io')(http);
-var ss = require('socket.io-stream');
 var fs = require('fs');
 var exec = require('child_process').exec;
 
@@ -130,7 +129,8 @@ app.post("/deepdream", function(req, res) {
 	res.send('200');
 })
 
-http.listen(8080, function(){
-	console.log('listening on *:8080');
+var listenon = process.argv[2];
+http.listen(listenon, function(){
+	console.log('listening on *:'+listenon);
 });
-sys.puts("Server Running on 8080");
+sys.puts("Server Running on "+listenon);
