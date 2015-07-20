@@ -17,12 +17,32 @@ html {
 	<canvas id="blended" hidden></canvas>
 	<canvas id="snapshot"></canvas>
  	<canvas id="server_feed"></canvas>
- <p><button onclick="capture()">Send Pic</button></p>
+ <p><button onclick="startFeed()">Start Feed</button></p>
 
 	<script>
-navigator.getUserMedia = navigator.webkitGetUserMedia || navigator.getUserMedia;
-window.URL = window.URL || window.webkitURL;
 
+
+
+// --------------------------------------------------------
+// framerate/stats stuff
+// --------------------------------------------------------
+var timestamp = function() {
+	return Date.now()/1000.0;
+}
+var lasttimestamp = timestamp();
+var framerate = function() {
+	var t = timestamp();
+	console.log()
+	var ret = t - lasttimestamp;
+	lasttimestamp = t;
+	console.log(ret, 'sec');
+	console.log(1/ret, 'fps');
+}
+// --------------------------------------------------------
+
+// --------------------------------------------------------
+// image handling stuff
+// --------------------------------------------------------
 var video = document.getElementById('webcam_feed');
 var canvas = document.getElementById('server_feed');
 var snapshot = document.getElementById('snapshot');
@@ -30,10 +50,120 @@ var blended = document.getElementById('blended');
 var ctx = canvas.getContext('2d');
 var stx = snapshot.getContext('2d');
 var btx = blended.getContext('2d');
-var intervalId = null;
-var idx = 0;
 
+var display = function(target, context, info, cb) {
+	if (info.image) {
+		var img = new Image();
+    img.src = info.buffer;
+    context.drawImage(img, 0, 0, target.width, target.height);
+	}
+	cb();
+};
+// assumes both frames are the same size...
+var lastframe = undefined;
+var blend = function(imageData1, coef1, coef2, cb) {
+  for (var i = 0; i < imageData1.data.length; i += 4) {
+    imageData1.data[i]     = imageData1.data[i]   * coef1 + lastframe.data[i]   * coef2; // red
+    imageData1.data[i + 1] = imageData1.data[i+1] * coef1 + lastframe.data[i+1] * coef2; // green
+    imageData1.data[i + 2] = imageData1.data[i+2] * coef1 + lastframe.data[i+2] * coef2; // blue
+  }
+	lastframe = imageData1;
+	cb(imageData1);
+};
+
+// feed is video element
+// dest is a canvas
+// context is the context for dest
+var newframe = undefined;
+var capture = function(feed, dest, context, cb) {
+	context.drawImage(feed, 0, 0, dest.width, dest.height);
+	cb();
+}
+// -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// networking, etc.
+// -----------------------------------------------------------------------------
 var socket = io();
+var startFeed = function() {
+	// set canvas dimensions
+	snapshot.width = canvas.width = blended.width = video.videoWidth;
+	snapshot.height = canvas.height = blended.height = video.videoHeight;
+
+	capture(video, snapshot, stx, function() {
+		if (sessionStorage.lastframe != undefined) {
+			// load last frame
+			var img = new Image();
+			img.src = sessionStorage.lastframe;
+			ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+			lastframe = ctx.getImageData(0,0, canvas.width, canvas.height);
+
+			// blend it
+			blend(stx.getImageData(0,0, snapshot.width, snapshot.height), 0.9, 0.2, function(imgData) {
+				// send it
+				btx.putImageData(imgData, 0, 0);
+				createOrGetGuid(function() {
+					sendCanvas(blended, btx, framerate);
+				});
+			});
+		} else {
+			capture(video, snapshot, stx, function() {
+				lastframe = stx.getImageData(0,0, snapshot.width, snapshot.height);
+				createOrGetGuid(function() {
+					sendCanvas(snapshot, stx, framerate);
+				});
+			});
+		}
+	});
+}
+
+var sendCanvas = function(target, context, cb) {
+	sessionStorage.lastframe = target.toDataURL('image/jpeg');
+	socket.emit('image', {image:true, buffer: sessionStorage.lastframe, guid : sessionStorage.guid, width : target.width, height : target.height});
+	cb();
+};
+
+socket.on("image", function(info) {
+	console.log(info);
+	display(canvas, ctx, info, function() {
+		capture(video, snapshot, stx, function() {
+			blend(stx.getImageData(0,0, snapshot.width, snapshot.height), 0.9, 0.2, function(imgData) {
+				btx.putImageData(imgData, 0,0);
+				createOrGetGuid(function() {
+					sendCanvas(blended, btx, framerate);
+				});
+			});
+		});
+	});
+});
+// -----------------------------------------------------------------------------
+
+
+// -----------------------------------------------------------------------------
+// sessioning
+// -----------------------------------------------------------------------------
+var guid = function() {
+  function s4() {
+    return Math.floor((1 + Math.random()) * 0x10000)
+      .toString(16)
+      .substring(1);
+  }
+  return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
+    s4() + '-' + s4() + s4() + s4();
+}
+var createOrGetGuid = function(cb) {
+	if (sessionStorage.guid == undefined) {
+		sessionStorage.guid = guid();
+	}
+	cb(sessionStorage.guid);
+}
+
+// -----------------------------------------------------------------------------
+// HTML5 webcam stuff
+// -----------------------------------------------------------------------------
+navigator.getUserMedia = navigator.webkitGetUserMedia || navigator.getUserMedia;
+window.URL = window.URL || window.webkitURL;
+
 function gotStream(stream) {
 	console.log('gotStream');
   if (window.URL) {
@@ -47,16 +177,7 @@ function gotStream(stream) {
   };
 
   stream.onended = noStream;
-
-  setTimeout(function() {
-	    // canvas.width = video.videoWidth;
-	    // canvas.height = video.videoHeight;
-		if (sessionStorage['lastframe'] != undefined) {
-			socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg'), guid : sessionStorage.guid});
-		} else {
-			capture();
-	  }
-	}, 150);
+	video.onloadedmetadata = startFeed;
 }
 
 function noStream(e) {
@@ -66,102 +187,8 @@ function noStream(e) {
   }
   document.getElementById('errorMessage').textContent = msg;
 }
-var lasttimestamp = timestamp();
-function timestamp() {
-	return Date.now()/1000.0;
-}
-var framerate = function() {
-	var t = timestamp();
-	console.log()
-	var ret = t - lasttimestamp;
-	lasttimestamp = t;
-	console.log(ret, 'sec');
-	console.log(1/ret, 'fps');
-}
-var lastframe = undefined;
-socket.on("image", function(info) {
-	canvas.width = video.videoWidth;
-	canvas.height = video.videoHeight;
-  if (info.image) {
-		// console.log(info.buffer);
-    var img = new Image();
-    img.src = info.buffer;
-    ctx.drawImage(img, 0, 0, video.videoWidth, video.videoHeight);
-		lastframe = ctx.getImageData(0,0, video.videoWidth, video.videoHeight);
-		sessionStorage['lastframe'] = info.buffer;
-  }
-	// setTimeout(function () {
-		capture();
-	 	framerate();
-	// }, 35);
-	// socket.emit('image', {image:true, buffer: snapshot.toDataURL('image/jpeg').toString('base64')});
-});
-function guid() {
-  function s4() {
-    return Math.floor((1 + Math.random()) * 0x10000)
-      .toString(16)
-      .substring(1);
-  }
-  return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
-    s4() + '-' + s4() + s4() + s4();
-}
-var newframe = undefined;
-// assumes both frames are the same size...
-var blend = function(imageData1, coef1, imageData2, coef2) {
-  for (var i = 0; i < imageData1.data.length; i += 4) {
-    imageData1.data[i]     = imageData1.data[i]   * coef1 + imageData2.data[i]   * coef2; // red
-    imageData1.data[i + 1] = imageData1.data[i+1] * coef1 + imageData2.data[i+1] * coef2; // green
-    imageData1.data[i + 2] = imageData1.data[i+2] * coef1 + imageData2.data[i+2] * coef2; // blue
-  }
-	return imageData1;
-};
-function capture() {
-	snapshot.width = video.videoWidth;
-	snapshot.height = video.videoHeight;
-	blended.width = snapshot.width;
-	blended.height = snapshot.height;
-	if (sessionStorage.guid == undefined) {
-		sessionStorage.guid = guid();
-	}
-	stx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-	newframe = stx.getImageData(0,0, video.videoWidth, video.videoHeight);
-	if (lastframe != undefined) {
-		btx.putImageData(blend(newframe, 0.9, lastframe, 0.2), 0,0);
-	}
-
-	socket.emit('image', {image:true, buffer: blended.toDataURL('image/jpeg'), guid : sessionStorage.guid});
-	// ss(socket).emit('image', ctx.getImageData(0, 0, video.videoWidth, video.videoHeight));
-	// socket.emit('image', ctx.getImageData(0, 0, video.videoWidth, video.videoHeight).toString('base64'));
-}
-  // if (intervalId) {
-  //   clearInterval(intervalId);
-  //   intervalId = null;
-  //   return;
-  // }
-	//
-  // intervalId = setInterval(function() {
-  //   ctx.drawImage(video, 0, 0);
-  //   var img = document.createElement('img');
-  //   img.src = canvas.toDataURL('image/webp');
-	//
-  //   var angle = Math.floor(Math.random() * 36);
-  //   var sign = Math.floor(Math.random() * 2) ? 1 : -1;
-  //   img.style.webkitTransform = 'rotateZ(' + (sign * angle) + 'deg)';
-	//
-  //   var maxLeft = document.body.clientWidth;
-  //   var maxTop = document.body.clientHeight;
-	//
-  //   img.style.top = Math.floor(Math.random() * maxTop) + 'px';
-  //   img.style.left = Math.floor(Math.random() * maxLeft) + 'px';
-	//
-  //   gallery.appendChild(img);
-  // }, 150);
 
 window.onload = function init() {
-
-	// canvas.width = video.videoWidth;
-	// canvas.height = video.videoHeight;
-
   if (!navigator.getUserMedia) {
     document.getElementById('errorMessage').innerHTML = 'Sorry. <code>navigator.getUserMedia()</code> is not available.';
     return;
